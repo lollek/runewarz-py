@@ -1,0 +1,340 @@
+#! /usr/bin/env python
+
+# Rune Warz v1.3
+# Created 2013-03-11 by Olle 'Iix' Kvarnstrom
+# Images by Sofie Aid
+
+# New features:
+
+# Dependencies:
+# - Working map (backup) named tmap2. Example of working below
+# - Need to have data/tiles.jpeg for graphics
+
+""" Working map:
+45x25
+            #####   #####   #####
+            #####   #####   #####
+ @##########################################
+ #            #       #       #            #
+ #            #       #       #            #
+ #            #       #       #            #
+#######    ####### ####### #######    #######
+################## ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### #######    #######
+#######    ####### ####### ##################
+#######    ####### ####### #######    #######
+ #            #       #       #            #
+ #            #       #       #            #
+ #            #       #       #            #
+ ##########################################@
+            #####   #####   #####
+            #####   #####   #####
+"""
+
+import pygame
+from pygame.locals import *
+from random import randint
+from sys import argv
+from time import sleep
+
+def root_init():
+
+    global RES, ROOT, TILE, LAUNDRY
+
+    # CONFIG:
+    mon_w, mon_h = 800, 600
+
+    RES = {
+        'mon': ( mon_w, mon_h ), 'mon_w': mon_w, 'mon_h': mon_h,
+        'tilesize': 15
+        }
+
+    pygame.init()
+    pygame.display.set_caption('Rune Warz')
+    ROOT = pygame.display.set_mode( RES['mon'] )
+    TILE = pygame.image.load('data/tiles.jpeg').convert()
+    LAUNDRY = []
+
+def make_map( mapsel ):
+
+    global MAP, PLAYERS, RES
+
+    ROOT.fill(( 0, 0, 0 ))
+    PLAYERS = []
+
+    map_debug = False
+
+    # MAPMAKING: -------------------------------------- #
+    try:
+                                                        # Init MAP:
+        with open(mapsel) as f: lines = f.readlines()   # - read map file
+        cfg = lines[0].split('x')                       # - split widthxheight at start of file
+        X, Y = int(cfg[0]), int(cfg[1])                 # - - and set them as map_w and map_h
+        del lines[0]                                    # - delete config-line. Now only the real map is left.
+                                                                                        # Draw MAP:
+        MAP = [[ Cap() for y in range( Y )] for x in range( X )]                        # - make a global MAP and fill it with Caps
+        x, y = 0, 0                                                                     # - locals for iteration
+        for lno in range( Y ):                                                          # - for y
+            for tile in range( X ):                                                     # - - for x
+                if tile <  len(lines[lno]):                                             # - - - before linebreak (less buggy maps this way)
+                    if map_debug: print('MAP[%s][%s] == %s' % (x, y, lines[lno][tile])) # - - - - echo if mapdebugging
+                    if lines[lno][tile] == '#': MAP[x][y].active = True                 # - - - - if #, make it 'ground'
+                    elif lines[lno][tile] == '@':                                       # - - - - if @, make a player here (otherwise, make it black/invisible)
+                        MAP[x][y].active = True
+                        new_player = Player(len(PLAYERS)+1, MAP[x][y].color)
+                        new_player.caps.append((x, y))
+                        PLAYERS.append(new_player)
+                    x += 1
+            x, y = 0, y + 1
+            
+        print('Successfully made map from file: %s' % mapsel) # IF OK: echo success
+    except:
+        print('Failed to make a map from file: %s' % mapsel)  # ELSE: echo failure and return
+        return 'FAIL'
+
+    # Adjust RES config after X/Y in map:
+    RES['map_w'] = X*RES['tilesize']
+    RES['map_h'] = Y*RES['tilesize']
+    RES['off_x'] = (RES['mon_w']-RES['map_w'])/2
+    RES['off_y'] = (RES['mon_h']-RES['map_h'])/2
+    RES['map_tw'] = X
+    RES['map_th'] = Y
+    
+    # Draw all tiles:
+    for x in range( X ):
+        for y in range( Y ):
+            MAP[x][y].draw(x, y)
+
+    # And redraw player's to add a nice rune:
+    for player in PLAYERS:
+        player.draw_caps()
+
+    return 'OK'
+
+class Cap:
+
+    def __init__ ( self ):
+
+        self.active = False
+        self.color = randint( 0, 7 )
+
+    def draw(self, x, y, no=False, force=False):
+        
+        if self.active or force:
+            x, y = RES['off_x'] + x*RES['tilesize'], RES['off_y'] + y*RES['tilesize']
+            if no is False: ROOT.blit(TILE, (x, y), (self.color*15, 0, 15, 15))
+            else: ROOT.blit(TILE, (x, y), (self.color*15, no*15, 15, 15))
+            LAUNDRY.append((x, y, 15, 15))
+            
+class Player:
+
+    def __init__( self, sym, color):
+        self.sym = sym
+        self.color = color
+        self.caps = []
+
+        self.action = None
+        if self.sym == 1:
+            self.player = True
+            self.MPOS = (0,0)
+            self.oList = []
+        else: self.player = False
+
+    def capture( self ):
+        self.color = self.hColor
+        for cap in self.oList: self.caps.append(cap)
+        self.draw_caps()
+        self.oList = []
+
+    def draw_caps( self ):
+        for cx, cy in self.caps:
+            MAP[cx][cy].color = self.color
+            MAP[cx][cy].draw( cx, cy, self.sym, True )
+            MAP[cx][cy].active = False
+        pygame.display.update(LAUNDRY)
+        LAUNDRY[:] = []
+
+    def take_turn( self, read_only = False ):
+        ai_debug = False
+
+        optColor = [ r for r in range( 8 ) ]
+        best = (None, [])
+        
+        for color in optColor:
+            self.hColor = color
+            checkColor( self, False )
+            if len(self.oList) > len(best[1]):
+                best = ( color, self.oList)
+
+            elif ai_debug: print 'Disregard %s (%s)' % ( color, len(self.oList))
+
+        if len(best[1]) > 0:
+            if ai_debug: print 'Best choice is %s (%s)' % (best[0], len(best[1]))
+            self.hColor = best[0]
+            self.oList = best[1]
+            if not read_only: sleep(0.5)
+            if not read_only: self.capture()
+            self.action = 'CAPT'
+            return 'OK'
+
+        elif ai_debug: print 'No good option :('
+        else:
+            self.action = 'NONE'
+            return 'DONE'
+
+def UpdateScore():
+#    MaxScore = RES['map_tw']*RES['map_th']
+
+    y = RES['off_y'] + RES['map_h'] + 20
+    
+    for player in PLAYERS:
+        x = RES['off_x']
+        score = len(player.caps)
+        ROOT.blit(TILE, (x, y), (player.color*15, player.sym*15, 15, 15))
+        LAUNDRY.append((x, y, 15, 15))
+        x += 15
+        while score > 0:
+            ROOT.blit(TILE, (x, y, 1, 15), (player.color*15, player.sym*15, 1, 15))
+            LAUNDRY.append((x, y, 1, 15))
+            score -= 1
+            x += 1
+        LAUNDRY.append((x, y, score, 15))
+        y += 20
+    pygame.display.update(LAUNDRY)
+    LAUNDRY[:] = []
+
+
+def isLegalCap( cx, cy ):
+    if 0 <= cx < RES['map_tw']:
+        if 0 <= cy < RES['map_th']:
+            if MAP[cx][cy].active:
+                return True
+    return False
+
+def getCloseCaps( cx, cy, color, lst):
+    tmp_list = [(cx-1, cy), (cx+1, cy), (cx, cy-1), (cx, cy+1)]
+    for x, y in tmp_list:
+        if isLegalCap( x, y ):
+            if MAP[x][y].color == color:
+                if (x, y) not in lst:
+                    lst.append((x, y))
+
+def isCloseToPlayer( cx, cy, player ):
+    tmp_list = [(cx-1, cy), (cx+1, cy), (cx, cy-1), (cx, cy+1)]
+    for cap in player.caps:
+        if cap in tmp_list:
+            return True
+    return False
+
+def checkColor( player, draw ):
+    for pl in PLAYERS:
+        if pl.color == player.hColor:
+            player.oList = []
+            return
+
+    FancyList = []
+    for cx, cy in player.caps:
+        getCloseCaps( cx, cy, player.hColor, FancyList )
+        if FancyList:
+            for cx, cy in FancyList:
+                if draw: MAP[cx][cy].draw( cx, cy, player.sym )
+                getCloseCaps( cx, cy, player.hColor, FancyList )
+            if draw:
+                pygame.display.update(LAUNDRY)
+                LAUNDRY[:] = []
+            player.oList = FancyList
+        else:
+            player.oList = []
+
+def event( player ):
+    event = pygame.event.wait()
+
+    if event.type == pygame.MOUSEMOTION:
+        mx, my = pygame.mouse.get_pos()
+        pos = ((mx-RES['off_x'])/RES['tilesize'], (my-RES['off_y'])/RES['tilesize'])
+        if pos != player.MPOS:
+            player.MPOS = pos
+            for cx, cy in player.oList: MAP[cx][cy].draw( cx, cy )
+            if isLegalCap( pos[0], pos[1] ) and isCloseToPlayer( pos[0], pos[1], player ):
+                player.hColor = MAP[pos[0]][pos[1]].color
+                checkColor( player, True )
+
+            else:
+                if player.oList:
+                    player.oList = []
+                    pygame.display.update()
+                    LAUNDRY[:] = []
+
+    elif event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_SPACE: return 'DONE'
+        elif event.key == pygame.K_q: return 'break'
+
+    elif event.type == pygame.MOUSEBUTTONDOWN:
+        if player.oList:
+            player.capture()
+            return 'DONE'
+
+def main():
+
+    root_init()
+    
+    try: mapname = argv[1]
+    except: mapname = 'tmap2'
+    response = make_map(mapname)
+
+    if 'ai' in argv: PLAYERS[0].player = False
+    
+    XIT = False
+    if response == 'FAIL':
+        print 'Quitting game! Reason: Failed map'
+        XIT = True
+    if 1 > len(PLAYERS) or len(PLAYERS) > 4:
+        print 'Quitting game! Reason: Cannot have %s players' % len(PLAYERS)
+        XIT = True
+
+    UpdateScore()
+    #turn_counter = 0
+    while not XIT:
+        #turn_counter += 1
+        #print('Turn: %s' % turn_counter)
+        DONE = False
+        for faction in PLAYERS:
+            if faction.player:
+                if faction.take_turn(True) != 'DONE':
+                    while not DONE:
+                        act = event( faction )
+                        if act == 'DONE':
+                            DONE = True
+                        elif act == 'break':
+                            DONE = True
+                            XIT = True
+            else:
+                faction.take_turn()
+            UpdateScore()
+
+        nonelist = []
+        for player in PLAYERS:
+            if player.action == 'NONE': nonelist.append(1)
+        if len(nonelist) == len(PLAYERS):
+            print 'Game over!'
+            while not XIT:
+                act = event( PLAYERS[0] )
+                if act == 'break':
+                    XIT = True
+
+if __name__ == '__main__': main()
+
+
+"""
+TODO:
+- Logo
+- Menu
+"""
