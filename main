@@ -1,48 +1,13 @@
 #! /usr/bin/env python
 
-# Rune Warz v1.3
+# Rune Warz
 # Created 2013-03-11 by Olle 'Iix' Kvarnstrom
 # Images by Sofie Aid
 
-# New features:
-
-# Dependencies:
-# - Working map (backup) named tmap2. Example of working below
-# - Need to have data/tiles.jpeg for graphics
-
-""" Working map:
-45x25
-            #####   #####   #####
-            #####   #####   #####
- @##########################################
- #            #       #       #            #
- #            #       #       #            #
- #            #       #       #            #
-#######    ####### ####### #######    #######
-################## ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### #######    #######
-#######    ####### ####### ##################
-#######    ####### ####### #######    #######
- #            #       #       #            #
- #            #       #       #            #
- #            #       #       #            #
- ##########################################@
-            #####   #####   #####
-            #####   #####   #####
-"""
-
 import pygame
 from pygame.locals import *
-from random import randint
-from sys import argv
+from random import randint, shuffle
+from sys import argv, exit
 from time import sleep
 
 def root_init():
@@ -153,7 +118,23 @@ class Player:
         for cap in self.oList: self.caps.append(cap)
         self.draw_caps()
         self.oList = []
+        UpdateScore()
 
+    def fancyCapture( self ):
+        self.color = self.hColor
+        while self.oList:
+            shuffle(self.oList)
+            cx, cy = self.oList[0]
+            self.caps.append(( cx, cy ))
+            MAP[cx][cy].color = self.color
+            MAP[cx][cy].draw( cx, cy, self.sym, True )
+            MAP[cx][cy].active = False
+            del self.oList[0]
+            pygame.display.update(LAUNDRY)
+            LAUNDRY[:] = []
+            UpdateScore()
+            sleep(0.1)
+            
     def draw_caps( self ):
         for cx, cy in self.caps:
             MAP[cx][cy].color = self.color
@@ -287,8 +268,8 @@ def main():
     root_init()
     
     try: mapname = argv[1]
-    except: mapname = 'tmap2'
-    response = make_map(mapname)
+    except: mapname = 'map'
+    response = make_map('maps/' + mapname)
 
     if 'ai' in argv: PLAYERS[0].player = False
     
@@ -300,7 +281,7 @@ def main():
         print 'Quitting game! Reason: Cannot have %s players' % len(PLAYERS)
         XIT = True
 
-    UpdateScore()
+    if not XIT: UpdateScore()
     #turn_counter = 0
     while not XIT:
         #turn_counter += 1
@@ -314,27 +295,27 @@ def main():
                         if act == 'DONE':
                             DONE = True
                         elif act == 'break':
-                            DONE = True
-                            XIT = True
+                            exit()
+                            #DONE = True
+                            #XIT = True
             else:
                 faction.take_turn()
-            UpdateScore()
 
         nonelist = []
         for player in PLAYERS:
             if player.action == 'NONE': nonelist.append(1)
         if len(nonelist) == len(PLAYERS):
             print 'Game over!'
+            for player in PLAYERS:
+                for x in range(RES['map_tw']):
+                    for y in range(RES['map_th']):
+                        if MAP[x][y].active and MAP[x][y].color == player.color:
+                            player.oList.append(( x, y ))
+                player.hColor = player.color
+                player.fancyCapture()
             while not XIT:
                 act = event( PLAYERS[0] )
                 if act == 'break':
                     XIT = True
 
 if __name__ == '__main__': main()
-
-
-"""
-TODO:
-- Logo
-- Menu
-"""
