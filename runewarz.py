@@ -1,58 +1,82 @@
-#! /usr/bin/env python
+#! /usr/bin/env python2.7
 
 # Rune Warz
-# Created 2013-03-11 by Olle 'Iix' Kvarnstrom
+# Created 2013-03-11 by Olle Kvarnstrom
 # Images by Sofie Aid
+
+import os
+from random import randint, shuffle
+from sys import exit
+from time import sleep
 
 import pygame
 from pygame.locals import *
-from random import randint, shuffle
-from sys import argv, exit
-from time import sleep
+
+VERSION = 'v0.1.3'
 
 def root_init():
 
-    global RES, ROOT, TILE, LAUNDRY
+    """ Window Width, Height and Tilesize """
+    global ROOT_W, ROOT_H, ROOT_T
+    ROOT_W, ROOT_H, ROOT_T = 800, 600, 15
 
-    # CONFIG:
-    mon_w, mon_h = 800, 600
-
-    RES = {
-        'mon': ( mon_w, mon_h ), 'mon_w': mon_w, 'mon_h': mon_h,
-        'tilesize': 15
-        }
-
+    """ Root window, Tile image, Blit list """
+    global ROOT, TILE, LAUNDRY
     pygame.init()
-    pygame.display.set_caption('Rune Warz')
-    ROOT = pygame.display.set_mode( RES['mon'] )
+    pygame.display.set_caption('Rune Warz '+VERSION)
+    ROOT = pygame.display.set_mode((ROOT_W, ROOT_H))
     TILE = pygame.image.load('data/tiles.jpeg').convert()
     LAUNDRY = []
+    
 
-def make_map( mapsel ):
+def make_map(filename, debugmode = False):
 
-    global MAP, PLAYERS, RES
+    def load_mapfile(filename, debugmode = False):
 
-    ROOT.fill(( 0, 0, 0 ))
+        if debugmode:
+            print('load_mapfile: attempting to load mapfile: %s' % filename)
+        try:
+            with open(filename) as mapfile:
+                lines = mapfile.readlines()
+            X, Y = lines[0].split('x')
+            del lines[0]
+            if debugmode:
+                print('load_mapfile: successfully loaded %s' % filename)
+            return('OK', ((int(X), int(Y)), lines))
+        except:
+            print('load_mapfile: failed to load %s' % filename)
+            return('ERR', 0)
+
+    """ Game Map, Player List """
+    global MAP, PLAYERS
+    global X, Y
+    global OFFSET_X, OFFSET_Y
+    
+    """ Load mapfile """
+    fromfile = load_mapfile(str(filename), debugmode)
+    if fromfile[0] == 'ERR':
+        print('make_make: Error received. Exiting')
+        return('ERR', 0)
+    else:
+        fromfile = fromfile[1]
+        X, Y = fromfile[0]
+        lines = fromfile[1]
+
+    """ Make loaded mapfile into map
+    # = ground, @ = player
+    """
     PLAYERS = []
-
-    map_debug = False
-
-    # MAPMAKING: -------------------------------------- #
     try:
-                                                        # Init MAP:
-        with open(mapsel) as f: lines = f.readlines()   # - read map file
-        cfg = lines[0].split('x')                       # - split widthxheight at start of file
-        X, Y = int(cfg[0]), int(cfg[1])                 # - - and set them as map_w and map_h
-        del lines[0]                                    # - delete config-line. Now only the real map is left.
-                                                                                        # Draw MAP:
-        MAP = [[ Cap() for y in range( Y )] for x in range( X )]                        # - make a global MAP and fill it with Caps
-        x, y = 0, 0                                                                     # - locals for iteration
-        for lno in range( Y ):                                                          # - for y
-            for tile in range( X ):                                                     # - - for x
-                if tile <  len(lines[lno]):                                             # - - - before linebreak (less buggy maps this way)
-                    if map_debug: print('MAP[%s][%s] == %s' % (x, y, lines[lno][tile])) # - - - - echo if mapdebugging
-                    if lines[lno][tile] == '#': MAP[x][y].active = True                 # - - - - if #, make it 'ground'
-                    elif lines[lno][tile] == '@':                                       # - - - - if @, make a player here (otherwise, make it black/invisible)
+        MAP = [[ Cap() for y in range( Y )] for x in range( X )]
+        x, y = 0, 0
+        for lno in range( Y ):
+            for tile in range( X ):
+                if tile <  len(lines[lno]):
+                    if debugmode:
+                        print('MAP[%s][%s] == %s' % (x, y, lines[lno][tile]))
+                    if lines[lno][tile] == '#':
+                        MAP[x][y].active = True
+                    elif lines[lno][tile] == '@':
                         MAP[x][y].active = True
                         new_player = Player(len(PLAYERS)+1, MAP[x][y].color)
                         new_player.caps.append((x, y))
@@ -60,19 +84,17 @@ def make_map( mapsel ):
                     x += 1
             x, y = 0, y + 1
             
-        print('Successfully made map from file: %s' % mapsel) # IF OK: echo success
+        if debugmode:
+            print('make_map: made map OK')
     except:
-        print('Failed to make a map from file: %s' % mapsel)  # ELSE: echo failure and return
-        return 'FAIL'
+        print('make_map: failed to make a map from file: %s' % filename)
+        return('ERR', 0)
 
     # Adjust RES config after X/Y in map:
-    RES['map_w'] = X*RES['tilesize']
-    RES['map_h'] = Y*RES['tilesize']
-    RES['off_x'] = (RES['mon_w']-RES['map_w'])/2
-    RES['off_y'] = (RES['mon_h']-RES['map_h'])/2
-    RES['map_tw'] = X
-    RES['map_th'] = Y
-    
+    OFFSET_X = (ROOT_W-(X*ROOT_T))/2
+    OFFSET_Y = (ROOT_H-(Y*ROOT_T))/2
+
+    ROOT.fill((0, 0, 0))
     # Draw all tiles:
     for x in range( X ):
         for y in range( Y ):
@@ -91,12 +113,15 @@ class Cap:
         self.active = False
         self.color = randint( 0, 7 )
 
-    def draw(self, x, y, no=False, force=False):
+    def draw(self, x, y, sym=None, force=False):
         
         if self.active or force:
-            x, y = RES['off_x'] + x*RES['tilesize'], RES['off_y'] + y*RES['tilesize']
-            if no is False: ROOT.blit(TILE, (x, y), (self.color*15, 0, 15, 15))
-            else: ROOT.blit(TILE, (x, y), (self.color*15, no*15, 15, 15))
+            x = OFFSET_X + x*ROOT_T
+            y = OFFSET_Y + y*ROOT_T
+            if sym is None:
+                ROOT.blit(TILE, (x, y), (self.color*15, 0, 15, 15))
+            else:
+                ROOT.blit(TILE, (x, y), (self.color*15, sym*15, 15, 15))
             LAUNDRY.append((x, y, 15, 15))
             
 class Player:
@@ -115,7 +140,8 @@ class Player:
 
     def capture( self ):
         self.color = self.hColor
-        for cap in self.oList: self.caps.append(cap)
+        for cap in self.oList:
+            self.caps.append(cap)
         self.draw_caps()
         self.oList = []
         UpdateScore()
@@ -174,10 +200,10 @@ class Player:
 def UpdateScore():
 #    MaxScore = RES['map_tw']*RES['map_th']
 
-    y = RES['off_y'] + RES['map_h'] + 20
+    y = OFFSET_Y + Y*ROOT_T + 20
     
     for player in PLAYERS:
-        x = RES['off_x']
+        x = OFFSET_X
         score = len(player.caps)
         ROOT.blit(TILE, (x, y), (player.color*15, player.sym*15, 15, 15))
         LAUNDRY.append((x, y, 15, 15))
@@ -194,8 +220,8 @@ def UpdateScore():
 
 
 def isLegalCap( cx, cy ):
-    if 0 <= cx < RES['map_tw']:
-        if 0 <= cy < RES['map_th']:
+    if 0 <= cx < X:
+        if 0 <= cy < Y:
             if MAP[cx][cy].active:
                 return True
     return False
@@ -240,7 +266,7 @@ def event( player ):
 
     if event.type == pygame.MOUSEMOTION:
         mx, my = pygame.mouse.get_pos()
-        pos = ((mx-RES['off_x'])/RES['tilesize'], (my-RES['off_y'])/RES['tilesize'])
+        pos = ((mx-OFFSET_X)/ROOT_T, (my-OFFSET_Y)/ROOT_T)
         if pos != player.MPOS:
             player.MPOS = pos
             for cx, cy in player.oList: MAP[cx][cy].draw( cx, cy )
@@ -263,29 +289,9 @@ def event( player ):
             player.capture()
             return 'DONE'
 
-def main():
-
-    root_init()
+def run_game(XIT):
     
-    try: mapname = argv[1]
-    except: mapname = 'map'
-    response = make_map('maps/' + mapname)
-
-    if 'ai' in argv: PLAYERS[0].player = False
-    
-    XIT = False
-    if response == 'FAIL':
-        print 'Quitting game! Reason: Failed map'
-        XIT = True
-    if 1 > len(PLAYERS) or len(PLAYERS) > 4:
-        print 'Quitting game! Reason: Cannot have %s players' % len(PLAYERS)
-        XIT = True
-
-    if not XIT: UpdateScore()
-    #turn_counter = 0
     while not XIT:
-        #turn_counter += 1
-        #print('Turn: %s' % turn_counter)
         DONE = False
         for faction in PLAYERS:
             if faction.player:
@@ -295,7 +301,8 @@ def main():
                         if act == 'DONE':
                             DONE = True
                         elif act == 'break':
-                            exit()
+                            #exit()
+                            return
                             #DONE = True
                             #XIT = True
             else:
@@ -307,8 +314,8 @@ def main():
         if len(nonelist) == len(PLAYERS):
             print 'Game over!'
             for player in PLAYERS:
-                for x in range(RES['map_tw']):
-                    for y in range(RES['map_th']):
+                for x in range(X):
+                    for y in range(Y):
                         if MAP[x][y].active and MAP[x][y].color == player.color:
                             player.oList.append(( x, y ))
                 player.hColor = player.color
@@ -317,5 +324,74 @@ def main():
                 act = event( PLAYERS[0] )
                 if act == 'break':
                     XIT = True
+        
+def main(argv):
 
-if __name__ == '__main__': main()
+    root_init()
+    
+    try: mapname = argv[1]
+    except: mapname = 'map'
+    response = make_map('maps/' + mapname)
+
+    if argv[0]: PLAYERS[0].player = False
+    
+    XIT = False
+    if response == 'FAIL':
+        print 'Quitting game! Reason: Failed map'
+        XIT = True
+    if 1 > len(PLAYERS) or len(PLAYERS) > 4:
+        print 'Quitting game! Reason: Cannot have %s players' % len(PLAYERS)
+        XIT = True
+
+    if not XIT: UpdateScore()
+    run_game(XIT)
+
+    pygame.quit()
+
+def term_main():
+
+    maps = [filename for filename in os.listdir('maps')]
+    argv = [False, 'map2_2']
+    msg = ''
+    while 1:
+
+
+        os.system(['clear', 'cls'][os.name == 'nt'])
+        print('Rune Warz %s\n' % VERSION)
+        print('Commands:')
+        print(' play\t\t- Play!')
+        print(' map set\t- Set map (currently: %s)' % argv[1])
+        print(' map list\t- View available maps')
+        print(' ai\t\t- Let AI play for you (currently: %s)' % argv[0])
+        print(' exit\t\t- Exit game\n')
+        print(msg + '\n')
+        
+        cmd = raw_input('> ')
+
+        if cmd == 'play':
+            if argv[1] is None:
+                msg = 'You need to set a map to play'
+            else:
+                main(argv)
+        if cmd == 'map list':
+            msg = 'Available maps: \n' + '\n'.join(maps)
+        elif cmd[:8] == 'map set ':
+            if cmd[8:] in maps:
+                argv[1] = cmd[8:]
+                msg = 'Map set to '+ argv[1]
+            else:
+                msg = 'Map "'+ cmd[8:] +'" not found'
+        elif cmd == 'ai':
+            if argv[0]:
+                msg = 'Player1 is now controlled by human'
+                argv[0] = False
+            else:
+                msg = 'Player1 is now controlled by computer'
+                argv[0] = True
+        elif cmd == 'exit': break
+        else: msg = 'Unknown command'
+    
+    
+if __name__ == '__main__':
+    #main()
+    term_main()
