@@ -4,48 +4,24 @@
 # Created 2013-03-11 by Olle Kvarnstrom
 # Images by Sofie Aid
 
+VERSION = 'v0.1.4'
+
+""" Standard libraries """
 import os
 from random import randint, shuffle
-from sys import exit
 from time import sleep
 
-import pygame
-from pygame.locals import *
+""" Custom libraries, see data/__init__.py folder """
+from data import *
 
-VERSION = 'v0.1.3'
-
-def root_init():
-
-    """ Window Width, Height and Tilesize """
-    global ROOT_W, ROOT_H, ROOT_T
-    ROOT_W, ROOT_H, ROOT_T = 800, 600, 15
-
-    """ Root window, Tile image, Blit list """
-    global ROOT, TILE, LAUNDRY
-    pygame.init()
-    pygame.display.set_caption('Rune Warz '+VERSION)
-    ROOT = pygame.display.set_mode((ROOT_W, ROOT_H))
-    TILE = pygame.image.load('data/tiles.jpeg').convert()
-    LAUNDRY = []
-    
+"""GLOBALS:
+MAP, PLAYERS
+X, Y
+OFFSET_X, OFFSET_Y
+ROOT_W, ROOT_H, ROOT_T
+"""
 
 def make_map(filename, debugmode = False):
-
-    def load_mapfile(filename, debugmode = False):
-
-        if debugmode:
-            print('load_mapfile: attempting to load mapfile: %s' % filename)
-        try:
-            with open(filename) as mapfile:
-                lines = mapfile.readlines()
-            X, Y = lines[0].split('x')
-            del lines[0]
-            if debugmode:
-                print('load_mapfile: successfully loaded %s' % filename)
-            return('OK', ((int(X), int(Y)), lines))
-        except:
-            print('load_mapfile: failed to load %s' % filename)
-            return('ERR', 0)
 
     """ Game Map, Player List """
     global MAP, PLAYERS
@@ -53,14 +29,14 @@ def make_map(filename, debugmode = False):
     global OFFSET_X, OFFSET_Y
     
     """ Load mapfile """
-    fromfile = load_mapfile(str(filename), debugmode)
-    if fromfile[0] == 'ERR':
-        print('make_make: Error received. Exiting')
+    map_response = script.load_mapfile(filename, debugmode)
+    if map_response[0] == 'ERR':
+        print('make_map: Error received. Exiting')
         return('ERR', 0)
     else:
-        fromfile = fromfile[1]
-        X, Y = fromfile[0]
-        lines = fromfile[1]
+        map_data = map_response[1]
+        X, Y = map_data[0]
+        lines = map_data[1]
 
     """ Make loaded mapfile into map
     # = ground, @ = player
@@ -78,7 +54,7 @@ def make_map(filename, debugmode = False):
                         MAP[x][y].active = True
                     elif lines[lno][tile] == '@':
                         MAP[x][y].active = True
-                        new_player = Player(len(PLAYERS)+1, MAP[x][y].color)
+                        new_player = Player(len(PLAYERS)+2, MAP[x][y].color)
                         new_player.caps.append((x, y))
                         PLAYERS.append(new_player)
                     x += 1
@@ -94,7 +70,7 @@ def make_map(filename, debugmode = False):
     OFFSET_X = (ROOT_W-(X*ROOT_T))/2
     OFFSET_Y = (ROOT_H-(Y*ROOT_T))/2
 
-    ROOT.fill((0, 0, 0))
+    sdl.root_clean()
     # Draw all tiles:
     for x in range( X ):
         for y in range( Y ):
@@ -111,54 +87,61 @@ class Cap:
     def __init__ ( self ):
 
         self.active = False
-        self.color = randint( 0, 7 )
+        self.color = randint( 1, 8 )
 
-    def draw(self, x, y, sym=None, force=False):
+    def draw(self, x, y, sym=None, force=False, is_unlocked=True):
         
         if self.active or force:
             x = OFFSET_X + x*ROOT_T
             y = OFFSET_Y + y*ROOT_T
-            if sym is None:
-                ROOT.blit(TILE, (x, y), (self.color*15, 0, 15, 15))
+            if is_unlocked:
+                if sym is None:
+                    sdl.root_blit((x, y, 15, 15), (self.color*15, 0, 15, 15))
+                else:
+                    sdl.root_blit((x, y, 15, 15), (self.color*15, sym*15, 15, 15))
             else:
-                ROOT.blit(TILE, (x, y), (self.color*15, sym*15, 15, 15))
-            LAUNDRY.append((x, y, 15, 15))
-            
+                sdl.root_blit((x, y, 15, 15), (self.color*15, 15, 15, 15))
 class Player:
 
     def __init__( self, sym, color):
         self.sym = sym
         self.color = color
         self.caps = []
+        self.caps_in_focus = []
 
         self.action = None
-        if self.sym == 1:
+        if self.sym == 2:
             self.player = True
             self.MPOS = (0,0)
-            self.oList = []
-        else: self.player = False
+        else:
+            self.player = False
 
     def capture( self ):
-        self.color = self.hColor
-        for cap in self.oList:
+
+        """ Capture all caps currently in caps_in_focus: """
+        self.color = self.color_in_focus
+        for cap in self.caps_in_focus:
             self.caps.append(cap)
         self.draw_caps()
-        self.oList = []
-        UpdateScore()
+        self.caps_in_focus[:] = []
+        
+        sdl.update_scores(OFFSET_X, OFFSET_Y, Y, PLAYERS)
 
     def fancyCapture( self ):
-        self.color = self.hColor
-        while self.oList:
-            shuffle(self.oList)
-            cx, cy = self.oList[0]
-            self.caps.append(( cx, cy ))
+
+        """ Capture all caps in caps_in_focus on random at a time"""
+        self.color = self.color_in_focus
+        while self.caps_in_focus:
+            shuffle(self.caps_in_focus)
+            cx, cy = self.caps_in_focus[0]
+            self.caps.append((cx, cy))
             MAP[cx][cy].color = self.color
             MAP[cx][cy].draw( cx, cy, self.sym, True )
             MAP[cx][cy].active = False
-            del self.oList[0]
-            pygame.display.update(LAUNDRY)
-            LAUNDRY[:] = []
-            UpdateScore()
+            del self.caps_in_focus[0]
+            
+            sdl.root_flip()
+            sdl.update_scores(OFFSET_X, OFFSET_Y, Y, PLAYERS)
             sleep(0.1)
             
     def draw_caps( self ):
@@ -166,126 +149,126 @@ class Player:
             MAP[cx][cy].color = self.color
             MAP[cx][cy].draw( cx, cy, self.sym, True )
             MAP[cx][cy].active = False
-        pygame.display.update(LAUNDRY)
-        LAUNDRY[:] = []
+        sdl.root_flip()
 
     def take_turn( self, read_only = False ):
         ai_debug = False
 
-        optColor = [ r for r in range( 8 ) ]
+        optColor = [r for r in range(1,9)]
         best = (None, [])
         
         for color in optColor:
-            self.hColor = color
-            checkColor( self, False )
-            if len(self.oList) > len(best[1]):
-                best = ( color, self.oList)
-
-            elif ai_debug: print 'Disregard %s (%s)' % ( color, len(self.oList))
+            self.hover_over_color( color, True)
+            if len(self.caps_in_focus) > len(best[1]):
+                free_color = True
+                for player in PLAYERS:
+                    if player.color == color:
+                        free_color = False
+                if free_color:
+                    best = ( color, self.caps_in_focus)
 
         if len(best[1]) > 0:
-            if ai_debug: print 'Best choice is %s (%s)' % (best[0], len(best[1]))
-            self.hColor = best[0]
-            self.oList = best[1]
+            self.color_in_focus = best[0]
+            self.caps_in_focus = best[1]
             if not read_only: sleep(0.5)
             if not read_only: self.capture()
             self.action = 'CAPT'
             return 'OK'
 
-        elif ai_debug: print 'No good option :('
         else:
             self.action = 'NONE'
             return 'DONE'
 
-def UpdateScore():
-#    MaxScore = RES['map_tw']*RES['map_th']
+    def hover_over_color(self, color, read_only = False):
 
-    y = OFFSET_Y + Y*ROOT_T + 20
-    
-    for player in PLAYERS:
-        x = OFFSET_X
-        score = len(player.caps)
-        ROOT.blit(TILE, (x, y), (player.color*15, player.sym*15, 15, 15))
-        LAUNDRY.append((x, y, 15, 15))
-        x += 15
-        while score > 0:
-            ROOT.blit(TILE, (x, y, 1, 15), (player.color*15, player.sym*15, 1, 15))
-            LAUNDRY.append((x, y, 1, 15))
-            score -= 1
-            x += 1
-        LAUNDRY.append((x, y, score, 15))
-        y += 20
-    pygame.display.update(LAUNDRY)
-    LAUNDRY[:] = []
+        """ Check if any other player is currently the wanted color: """
+        color_is_available = True
+        for other_player in PLAYERS:
+            if other_player.color == color:
+                color_is_available = False
+
+        """ Find all caps of the selected color and show hover-effect """
+        nearby_caps = []
+        for cx, cy in self.caps:
+            get_nearby_caps(cx, cy, color, nearby_caps)
+            if nearby_caps:
+                for cx, cy in nearby_caps:
+                    if not read_only:
+                        MAP[cx][cy].draw(cx, cy, self.sym, True, color_is_available)
+                    get_nearby_caps(cx, cy, color, nearby_caps)
+                if not read_only:
+                    sdl.root_flip()
+
+        self.caps_in_focus = nearby_caps
+        self.color_in_focus = color
+
+    def is_close_to_cap(self, cx, cy):
+        """ Function to check if the cap is neighboring the player's """
+        
+        tmp_list = [(cx-1, cy), (cx+1, cy), (cx, cy-1), (cx, cy+1)]
+        for cap in self.caps:
+            if cap in tmp_list:
+                return True
+        return False
 
 
-def isLegalCap( cx, cy ):
+def is_cappable(cx, cy):
+
+    """ True if Cap can be captured """
     if 0 <= cx < X:
         if 0 <= cy < Y:
             if MAP[cx][cy].active:
                 return True
     return False
 
-def getCloseCaps( cx, cy, color, lst):
+def get_nearby_caps(cx, cy, color, list_of_caps):
     tmp_list = [(cx-1, cy), (cx+1, cy), (cx, cy-1), (cx, cy+1)]
     for x, y in tmp_list:
-        if isLegalCap( x, y ):
+        if is_cappable(x, y):
             if MAP[x][y].color == color:
-                if (x, y) not in lst:
-                    lst.append((x, y))
-
-def isCloseToPlayer( cx, cy, player ):
-    tmp_list = [(cx-1, cy), (cx+1, cy), (cx, cy-1), (cx, cy+1)]
-    for cap in player.caps:
-        if cap in tmp_list:
-            return True
-    return False
-
-def checkColor( player, draw ):
-    for pl in PLAYERS:
-        if pl.color == player.hColor:
-            player.oList = []
-            return
-
-    FancyList = []
-    for cx, cy in player.caps:
-        getCloseCaps( cx, cy, player.hColor, FancyList )
-        if FancyList:
-            for cx, cy in FancyList:
-                if draw: MAP[cx][cy].draw( cx, cy, player.sym )
-                getCloseCaps( cx, cy, player.hColor, FancyList )
-            if draw:
-                pygame.display.update(LAUNDRY)
-                LAUNDRY[:] = []
-            player.oList = FancyList
-        else:
-            player.oList = []
+                if (x, y) not in list_of_caps:
+                    list_of_caps.append((x, y))
 
 def event( player ):
-    event = pygame.event.wait()
+    
+    """ Event handling (keyboard/mouse input) """
+    event = sdl.root_event()
 
-    if event.type == pygame.MOUSEMOTION:
-        mx, my = pygame.mouse.get_pos()
+    if event[0] == 'MOUSEMOTION':
+        
+        """ First, check if mouse has moved to a new tile: """
+        mx, my = event[1]
         pos = ((mx-OFFSET_X)/ROOT_T, (my-OFFSET_Y)/ROOT_T)
         if pos != player.MPOS:
             player.MPOS = pos
-            for cx, cy in player.oList: MAP[cx][cy].draw( cx, cy )
-            if isLegalCap( pos[0], pos[1] ) and isCloseToPlayer( pos[0], pos[1], player ):
-                player.hColor = MAP[pos[0]][pos[1]].color
-                checkColor( player, True )
+            
+            """ If it has, remove the hover-effect from old focused tiles: """
+            for cx, cy in player.caps_in_focus:
+                    MAP[cx][cy].draw(cx, cy)
+            player.caps_in_focus[:] = []
 
-            else:
-                if player.oList:
-                    player.oList = []
-                    pygame.display.update()
-                    LAUNDRY[:] = []
+            
+            """ Then; check if the the tile that the mouse hovers
+            over is close to the player and captureable: """
+            if player.is_close_to_cap(pos[0], pos[1]):
+                if is_cappable(pos[0], pos[1]):
+                    color = MAP[pos[0]][pos[1]].color
+                    player.hover_over_color(color)
 
-    elif event.type == pygame.KEYDOWN:
-        if event.key == pygame.K_SPACE: return 'DONE'
-        elif event.key == pygame.K_q: return 'break'
+            """ Finally, update the screen: """
+            sdl.root_flip()
 
-    elif event.type == pygame.MOUSEBUTTONDOWN:
-        if player.oList:
+        
+    elif event[0] == 'KEYDOWN':
+        
+        if event[1] == 'q': return 'break'
+
+    elif event[0] == 'MOUSEBUTTONDOWN':
+
+        for other_player in PLAYERS:
+            if other_player.color == player.color_in_focus:
+                return
+        if player.caps_in_focus:
             player.capture()
             return 'DONE'
 
@@ -301,10 +284,7 @@ def run_game(XIT):
                         if act == 'DONE':
                             DONE = True
                         elif act == 'break':
-                            #exit()
                             return
-                            #DONE = True
-                            #XIT = True
             else:
                 faction.take_turn()
 
@@ -317,36 +297,44 @@ def run_game(XIT):
                 for x in range(X):
                     for y in range(Y):
                         if MAP[x][y].active and MAP[x][y].color == player.color:
-                            player.oList.append(( x, y ))
-                player.hColor = player.color
+                            player.caps_in_focus.append(( x, y ))
+                player.color_in_focus = player.color
                 player.fancyCapture()
             while not XIT:
                 act = event( PLAYERS[0] )
                 if act == 'break':
                     XIT = True
         
-def main(argv):
+def main(ai, mapname):
 
-    root_init()
-    
-    try: mapname = argv[1]
-    except: mapname = 'map'
-    response = make_map('maps/' + mapname)
+    global ROOT_W, ROOT_H, ROOT_T
 
-    if argv[0]: PLAYERS[0].player = False
-    
+    """ Init Graphics """
+    ROOT_W, ROOT_H, ROOT_T = 800, 600, 15
+    sdl.root_init(ROOT_W, ROOT_H, VERSION)
+
+    """ Make map """
     XIT = False
-    if response == 'FAIL':
+    map_status = make_map('maps/' + mapname)
+
+    """ Check everything went OK: """
+    if map_status == 'FAIL':
         print 'Quitting game! Reason: Failed map'
         XIT = True
-    if 1 > len(PLAYERS) or len(PLAYERS) > 4:
+    elif 1 > len(PLAYERS) or len(PLAYERS) > 4:
         print 'Quitting game! Reason: Cannot have %s players' % len(PLAYERS)
         XIT = True
 
-    if not XIT: UpdateScore()
-    run_game(XIT)
+    """ Settings: """
+    if ai: PLAYERS[0].player = False
 
-    pygame.quit()
+    """ If all went well, game will start """
+    if not XIT:
+        sdl.update_scores(OFFSET_X, OFFSET_Y, Y, PLAYERS)
+        run_game(XIT)
+
+    """ Finally: kill the screen """
+    sdl.root_exit()
 
 def term_main():
 
@@ -354,7 +342,6 @@ def term_main():
     argv = [False, 'map2_2']
     msg = ''
     while 1:
-
 
         os.system(['clear', 'cls'][os.name == 'nt'])
         print('Rune Warz %s\n' % VERSION)
@@ -372,7 +359,7 @@ def term_main():
             if argv[1] is None:
                 msg = 'You need to set a map to play'
             else:
-                main(argv)
+                main(argv[0], argv[1])
         if cmd == 'map list':
             msg = 'Available maps: \n' + '\n'.join(maps)
         elif cmd[:8] == 'map set ':
